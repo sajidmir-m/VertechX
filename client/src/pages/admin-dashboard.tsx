@@ -17,20 +17,30 @@ export default function AdminDashboard() {
   const [verificationInput, setVerificationInput] = useState("");
   const [verificationResult, setVerificationResult] = useState<any>(null);
 
-  const { data: org, isLoading: orgLoading } = useQuery({
+  const { data: org, isLoading: orgLoading, refetch: refetchOrg } = useQuery({
     queryKey: ["/api/admin/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
+    refetchOnMount: true,
   });
 
   const verifyMutation = useMutation({
     mutationFn: async (data: string) => {
-      const res = await apiRequest("POST", "/api/admin/verify", { credentialData: data });
-      const json = await res.json();
-      return {
-        ...json,
-        isValid: json.isValid === true || json.isValid === "true",
-      };
+      try {
+        const res = await apiRequest("POST", "/api/admin/verify", { credentialData: data });
+        const json = await res.json();
+        return {
+          ...json,
+          isValid: json.isValid === true || json.isValid === "true",
+        };
+      } catch (error: any) {
+        // Re-throw with more context
+        const errorMessage = error.message || "Failed to verify credential";
+        if (errorMessage.includes("401")) {
+          throw new Error("Session expired. Please login again to the admin portal.");
+        }
+        throw error;
+      }
     },
     onSuccess: (result) => {
       setVerificationResult(result);
@@ -42,10 +52,32 @@ export default function AdminDashboard() {
         variant: result.isValid ? "default" : "destructive",
       });
     },
-    onError: (error: any) => {
+    onError: async (error: any) => {
+      let errorMessage = "Failed to verify credential. Please try again.";
+      
+      // Try to extract error message from response
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response) {
+        try {
+          const errorData = await error.response.json();
+          errorMessage = errorData.message || errorData.details || errorMessage;
+        } catch {
+          errorMessage = error.response.statusText || errorMessage;
+        }
+      }
+      
+      // If it's a 401, suggest re-login
+      if (errorMessage.includes("401") || errorMessage.includes("authentication")) {
+        errorMessage = "Session expired. Please login again.";
+        setTimeout(() => {
+          setLocation("/admin/login");
+        }, 2000);
+      }
+      
       toast({
         title: "Verification Error",
-        description: error.message || "Failed to verify credential. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
       setVerificationResult(null);

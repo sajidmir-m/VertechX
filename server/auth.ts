@@ -32,7 +32,12 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction) {
 
 export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.organizationId) {
-    return res.status(401).json({ message: "Admin authentication required" });
+    console.log("Admin auth failed - session:", req.session);
+    console.log("Admin auth failed - organizationId:", req.session?.organizationId);
+    return res.status(401).json({ 
+      message: "Admin authentication required",
+      details: "Please login to the admin portal first"
+    });
   }
   next();
 }

@@ -347,6 +347,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Set organization session
       req.session.organizationId = org.id;
       
+      // Save the session (promise wrapper)
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+      
       res.json({
         id: org.id,
         name: org.name,
