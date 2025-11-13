@@ -11,21 +11,30 @@ import {
   type InsertActivity,
   type CredentialTemplate,
   type InsertCredentialTemplate,
+  type User,
+  type InsertUser,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
+  // User operations
+  createUser(user: InsertUser): Promise<User>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserById(id: string): Promise<User | undefined>;
+  updateUserCurrentDid(userId: string, didId: string): Promise<void>;
+  
   // DID operations
   getDid(id: string): Promise<Did | undefined>;
   getDidByString(didString: string): Promise<Did | undefined>;
-  getCurrentDid(): Promise<Did | undefined>;
-  setCurrentDid(id: string): Promise<void>;
+  getDidsByUserId(userId: string): Promise<Did[]>;
+  getCurrentDidForUser(userId: string): Promise<Did | undefined>;
   createDid(did: InsertDid): Promise<Did>;
   
   // Credential operations
   getCredential(id: string): Promise<Credential | undefined>;
+  getCredentialByShareToken(token: string): Promise<Credential | undefined>;
   getCredentialsByDidId(didId: string): Promise<Credential[]>;
-  getAllCredentials(): Promise<Credential[]>;
+  getCredentialsByUserId(userId: string): Promise<Credential[]>;
   createCredential(credential: InsertCredential): Promise<Credential>;
   updateCredentialStatus(id: string, status: string): Promise<Credential | undefined>;
   
@@ -40,7 +49,7 @@ export interface IStorage {
   
   // Activity operations
   getActivitiesByDidId(didId: string): Promise<Activity[]>;
-  getAllActivities(): Promise<Activity[]>;
+  getActivitiesByUserId(userId: string): Promise<Activity[]>;
   createActivity(activity: InsertActivity): Promise<Activity>;
   
   // Template operations
@@ -50,22 +59,22 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
+  private users: Map<string, User>;
   private dids: Map<string, Did>;
   private credentials: Map<string, Credential>;
   private verifications: Map<string, Verification>;
   private ipfsContents: Map<string, IpfsContent>;
   private activities: Map<string, Activity>;
   private templates: Map<string, CredentialTemplate>;
-  private currentDidId: string | null;
 
   constructor() {
+    this.users = new Map();
     this.dids = new Map();
     this.credentials = new Map();
     this.verifications = new Map();
     this.ipfsContents = new Map();
     this.activities = new Map();
     this.templates = new Map();
-    this.currentDidId = null;
     this.initializeTemplates();
   }
 
@@ -114,6 +123,34 @@ export class MemStorage implements IStorage {
     });
   }
 
+  // User operations
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const user: User = {
+      ...insertUser,
+      id,
+      currentDidId: null,
+    };
+    this.users.set(id, user);
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.username === username);
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async updateUserCurrentDid(userId: string, didId: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.currentDidId = didId;
+      this.users.set(userId, user);
+    }
+  }
+
   // DID operations
   async getDid(id: string): Promise<Did | undefined> {
     return this.dids.get(id);
@@ -125,23 +162,21 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async getCurrentDid(): Promise<Did | undefined> {
-    if (this.currentDidId) {
-      return this.dids.get(this.currentDidId);
-    }
-    const dids = Array.from(this.dids.values());
-    if (dids.length > 0) {
-      this.currentDidId = dids[0].id;
-      return dids[0];
-    }
-    return undefined;
+  async getDidsByUserId(userId: string): Promise<Did[]> {
+    return Array.from(this.dids.values()).filter(did => did.userId === userId);
   }
 
-  async setCurrentDid(id: string): Promise<void> {
-    const did = this.dids.get(id);
-    if (did) {
-      this.currentDidId = id;
+  async getCurrentDidForUser(userId: string): Promise<Did | undefined> {
+    const user = await this.getUserById(userId);
+    if (user?.currentDidId) {
+      return this.dids.get(user.currentDidId);
     }
+    const userDids = await this.getDidsByUserId(userId);
+    if (userDids.length > 0) {
+      await this.updateUserCurrentDid(userId, userDids[0].id);
+      return userDids[0];
+    }
+    return undefined;
   }
 
   async createDid(insertDid: InsertDid): Promise<Did> {
@@ -152,9 +187,7 @@ export class MemStorage implements IStorage {
       createdAt: new Date(),
     };
     this.dids.set(id, did);
-    if (!this.currentDidId) {
-      this.currentDidId = id;
-    }
+    await this.updateUserCurrentDid(insertDid.userId, id);
     return did;
   }
 
@@ -163,16 +196,24 @@ export class MemStorage implements IStorage {
     return this.credentials.get(id);
   }
 
+  async getCredentialByShareToken(token: string): Promise<Credential | undefined> {
+    return Array.from(this.credentials.values()).find(
+      (cred) => cred.shareToken === token
+    );
+  }
+
   async getCredentialsByDidId(didId: string): Promise<Credential[]> {
     return Array.from(this.credentials.values()).filter(
       (cred) => cred.didId === didId
     );
   }
 
-  async getAllCredentials(): Promise<Credential[]> {
-    return Array.from(this.credentials.values()).sort(
-      (a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()
-    );
+  async getCredentialsByUserId(userId: string): Promise<Credential[]> {
+    const userDids = await this.getDidsByUserId(userId);
+    const didIds = new Set(userDids.map(d => d.id));
+    return Array.from(this.credentials.values())
+      .filter(cred => didIds.has(cred.didId))
+      .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
   }
 
   async createCredential(insertCredential: InsertCredential): Promise<Credential> {
@@ -253,11 +294,12 @@ export class MemStorage implements IStorage {
       );
   }
 
-  async getAllActivities(): Promise<Activity[]> {
-    return Array.from(this.activities.values()).sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
+  async getActivitiesByUserId(userId: string): Promise<Activity[]> {
+    const userDids = await this.getDidsByUserId(userId);
+    const didIds = new Set(userDids.map(d => d.id));
+    return Array.from(this.activities.values())
+      .filter(act => act.didId && didIds.has(act.didId))
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
 
   async createActivity(insertActivity: InsertActivity): Promise<Activity> {

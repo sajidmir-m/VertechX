@@ -6,6 +6,7 @@ import { z } from "zod";
 // Decentralized Identifiers (DIDs)
 export const dids = pgTable("dids", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
   didString: text("did_string").notNull().unique(),
   publicKey: text("public_key").notNull(),
   privateKey: text("private_key").notNull(), // In production, this would be encrypted
@@ -52,6 +53,9 @@ export const credentials = pgTable("credentials", {
   credentialSubject: jsonb("credential_subject").notNull(), // The actual credential data
   proof: jsonb("proof").notNull(), // Cryptographic proof
   ipfsCid: text("ipfs_cid"), // IPFS Content Identifier
+  imageUrl: text("image_url"), // URL to credential image/photo
+  documentUrl: text("document_url"), // URL to supporting document
+  shareToken: text("share_token").unique(), // Token for public verification
   metadata: jsonb("metadata"),
 });
 
