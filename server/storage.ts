@@ -13,8 +13,16 @@ import {
   type InsertCredentialTemplate,
   type User,
   type InsertUser,
+  dids,
+  users,
+  credentials,
+  verifications,
+  ipfsContent,
+  activities,
+  credentialTemplates,
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { eq, desc, inArray } from "drizzle-orm";
+import { db } from "./db";
 
 export interface IStorage {
   // User operations
@@ -58,118 +66,105 @@ export interface IStorage {
   createCredentialTemplate(template: InsertCredentialTemplate): Promise<CredentialTemplate>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private dids: Map<string, Did>;
-  private credentials: Map<string, Credential>;
-  private verifications: Map<string, Verification>;
-  private ipfsContents: Map<string, IpfsContent>;
-  private activities: Map<string, Activity>;
-  private templates: Map<string, CredentialTemplate>;
+export class DbStorage implements IStorage {
+  private templatesInitialized = false;
 
-  constructor() {
-    this.users = new Map();
-    this.dids = new Map();
-    this.credentials = new Map();
-    this.verifications = new Map();
-    this.ipfsContents = new Map();
-    this.activities = new Map();
-    this.templates = new Map();
-    this.initializeTemplates();
-  }
+  constructor() {}
 
-  private initializeTemplates() {
-    const templates: InsertCredentialTemplate[] = [
-      {
-        name: "Educational Credential",
-        type: "EducationalCredential",
-        issuer: "University of Blockchain",
-        schema: {
-          degree: "string",
-          major: "string",
-          graduationYear: "number",
-          institution: "string",
-        },
-        requiredFields: ["degree", "major", "graduationYear"],
-      },
-      {
-        name: "Government ID",
-        type: "GovernmentID",
-        issuer: "Digital Government Authority",
-        schema: {
-          idNumber: "string",
-          fullName: "string",
-          dateOfBirth: "string",
-          nationality: "string",
-        },
-        requiredFields: ["idNumber", "fullName", "dateOfBirth"],
-      },
-      {
-        name: "Employment Credential",
-        type: "EmploymentCredential",
-        issuer: "Tech Corp Inc.",
-        schema: {
-          position: "string",
-          company: "string",
-          startDate: "string",
-          endDate: "string",
-        },
-        requiredFields: ["position", "company", "startDate"],
-      },
-    ];
+  private async ensureTemplatesInitialized() {
+    if (this.templatesInitialized) return;
+    
+    try {
+      const existingTemplates = await db.select().from(credentialTemplates);
+      if (existingTemplates.length === 0) {
+        const templates: InsertCredentialTemplate[] = [
+          {
+            name: "Educational Credential",
+            type: "EducationalCredential",
+            issuer: "University of Blockchain",
+            schema: {
+              degree: "string",
+              major: "string",
+              graduationYear: "number",
+              institution: "string",
+            },
+            requiredFields: ["degree", "major", "graduationYear"],
+          },
+          {
+            name: "Government ID",
+            type: "GovernmentID",
+            issuer: "Digital Government Authority",
+            schema: {
+              idNumber: "string",
+              fullName: "string",
+              dateOfBirth: "string",
+              nationality: "string",
+            },
+            requiredFields: ["idNumber", "fullName", "dateOfBirth"],
+          },
+          {
+            name: "Employment Credential",
+            type: "EmploymentCredential",
+            issuer: "Tech Corp Inc.",
+            schema: {
+              position: "string",
+              company: "string",
+              startDate: "string",
+              endDate: "string",
+            },
+            requiredFields: ["position", "company", "startDate"],
+          },
+        ];
 
-    templates.forEach((template) => {
-      this.createCredentialTemplate(template);
-    });
+        for (const template of templates) {
+          await db.insert(credentialTemplates).values(template);
+        }
+      }
+      this.templatesInitialized = true;
+    } catch (error) {
+      console.error("Failed to initialize templates:", error);
+    }
   }
 
   // User operations
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = {
-      ...insertUser,
-      id,
-      currentDidId: null,
-    };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(u => u.username === username);
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async getUserById(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async updateUserCurrentDid(userId: string, didId: string): Promise<void> {
-    const user = this.users.get(userId);
-    if (user) {
-      user.currentDidId = didId;
-      this.users.set(userId, user);
-    }
+    await db.update(users).set({ currentDidId: didId }).where(eq(users.id, userId));
   }
 
   // DID operations
   async getDid(id: string): Promise<Did | undefined> {
-    return this.dids.get(id);
+    const [did] = await db.select().from(dids).where(eq(dids.id, id));
+    return did;
   }
 
   async getDidByString(didString: string): Promise<Did | undefined> {
-    return Array.from(this.dids.values()).find(
-      (did) => did.didString === didString
-    );
+    const [did] = await db.select().from(dids).where(eq(dids.didString, didString));
+    return did;
   }
 
   async getDidsByUserId(userId: string): Promise<Did[]> {
-    return Array.from(this.dids.values()).filter(did => did.userId === userId);
+    return await db.select().from(dids).where(eq(dids.userId, userId));
   }
 
   async getCurrentDidForUser(userId: string): Promise<Did | undefined> {
     const user = await this.getUserById(userId);
     if (user?.currentDidId) {
-      return this.dids.get(user.currentDidId);
+      return await this.getDid(user.currentDidId);
     }
     const userDids = await this.getDidsByUserId(userId);
     if (userDids.length > 0) {
@@ -180,182 +175,126 @@ export class MemStorage implements IStorage {
   }
 
   async createDid(insertDid: InsertDid): Promise<Did> {
-    const id = randomUUID();
-    const did: Did = {
-      ...insertDid,
-      id,
-      method: insertDid.method || "key",
-      metadata: insertDid.metadata || {},
-      createdAt: new Date(),
-    };
-    this.dids.set(id, did);
-    await this.updateUserCurrentDid(insertDid.userId, id);
+    const [did] = await db.insert(dids).values(insertDid).returning();
+    await this.updateUserCurrentDid(insertDid.userId, did.id);
     return did;
   }
 
   // Credential operations
   async getCredential(id: string): Promise<Credential | undefined> {
-    return this.credentials.get(id);
+    const [credential] = await db.select().from(credentials).where(eq(credentials.id, id));
+    return credential;
   }
 
   async getCredentialByShareToken(token: string): Promise<Credential | undefined> {
-    return Array.from(this.credentials.values()).find(
-      (cred) => cred.shareToken === token
-    );
+    const [credential] = await db.select().from(credentials).where(eq(credentials.shareToken, token));
+    return credential;
   }
 
   async getCredentialsByDidId(didId: string): Promise<Credential[]> {
-    return Array.from(this.credentials.values()).filter(
-      (cred) => cred.didId === didId
-    );
+    return await db
+      .select()
+      .from(credentials)
+      .where(eq(credentials.didId, didId))
+      .orderBy(desc(credentials.issuedAt));
   }
 
   async getCredentialsByUserId(userId: string): Promise<Credential[]> {
     const userDids = await this.getDidsByUserId(userId);
-    const didIds = new Set(userDids.map(d => d.id));
-    return Array.from(this.credentials.values())
-      .filter(cred => didIds.has(cred.didId))
-      .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
+    if (userDids.length === 0) return [];
+    
+    const didIds = userDids.map(d => d.id);
+    return await db
+      .select()
+      .from(credentials)
+      .where(inArray(credentials.didId, didIds))
+      .orderBy(desc(credentials.issuedAt));
   }
 
   async createCredential(insertCredential: InsertCredential): Promise<Credential> {
-    const id = randomUUID();
-    const credential: Credential = {
-      ...insertCredential,
-      id,
-      status: insertCredential.status || "verified",
-      expiresAt: insertCredential.expiresAt || null,
-      issuerDid: insertCredential.issuerDid || null,
-      ipfsCid: insertCredential.ipfsCid || null,
-      imageUrl: insertCredential.imageUrl || null,
-      documentUrl: insertCredential.documentUrl || null,
-      shareToken: insertCredential.shareToken || null,
-      metadata: insertCredential.metadata || {},
-      issuedAt: new Date(),
-    };
-    this.credentials.set(id, credential);
+    const [credential] = await db.insert(credentials).values(insertCredential).returning();
     return credential;
   }
 
-  async updateCredentialStatus(
-    id: string,
-    status: string
-  ): Promise<Credential | undefined> {
-    const credential = this.credentials.get(id);
-    if (credential) {
-      credential.status = status;
-      this.credentials.set(id, credential);
-      return credential;
-    }
-    return undefined;
+  async updateCredentialStatus(id: string, status: string): Promise<Credential | undefined> {
+    const [credential] = await db
+      .update(credentials)
+      .set({ status })
+      .where(eq(credentials.id, id))
+      .returning();
+    return credential;
   }
 
   // Verification operations
   async getVerification(id: string): Promise<Verification | undefined> {
-    return this.verifications.get(id);
+    const [verification] = await db.select().from(verifications).where(eq(verifications.id, id));
+    return verification;
   }
 
-  async getVerificationsByCredentialId(
-    credentialId: string
-  ): Promise<Verification[]> {
-    return Array.from(this.verifications.values()).filter(
-      (ver) => ver.credentialId === credentialId
-    );
+  async getVerificationsByCredentialId(credentialId: string): Promise<Verification[]> {
+    return await db
+      .select()
+      .from(verifications)
+      .where(eq(verifications.credentialId, credentialId));
   }
 
-  async createVerification(
-    insertVerification: InsertVerification
-  ): Promise<Verification> {
-    const id = randomUUID();
-    const verification: Verification = {
-      ...insertVerification,
-      id,
-      credentialId: insertVerification.credentialId || null,
-      verifierDid: insertVerification.verifierDid || null,
-      result: insertVerification.result || {},
-      verifiedAt: new Date(),
-    };
-    this.verifications.set(id, verification);
+  async createVerification(insertVerification: InsertVerification): Promise<Verification> {
+    const [verification] = await db.insert(verifications).values(insertVerification).returning();
     return verification;
   }
 
   // IPFS operations
   async getIpfsContent(cid: string): Promise<IpfsContent | undefined> {
-    return this.ipfsContents.get(cid);
+    const [content] = await db.select().from(ipfsContent).where(eq(ipfsContent.cid, cid));
+    return content;
   }
 
-  async createIpfsContent(
-    insertIpfsContent: InsertIpfsContent
-  ): Promise<IpfsContent> {
-    const id = randomUUID();
-    const content: IpfsContent = {
-      ...insertIpfsContent,
-      id,
-      fileSize: insertIpfsContent.fileSize || null,
-      mimeType: insertIpfsContent.mimeType || null,
-      metadata: insertIpfsContent.metadata || {},
-      uploadedAt: new Date(),
-    };
-    this.ipfsContents.set(insertIpfsContent.cid, content);
+  async createIpfsContent(insertIpfsContent: InsertIpfsContent): Promise<IpfsContent> {
+    const [content] = await db.insert(ipfsContent).values(insertIpfsContent).returning();
     return content;
   }
 
   // Activity operations
   async getActivitiesByDidId(didId: string): Promise<Activity[]> {
-    return Array.from(this.activities.values())
-      .filter((act) => act.didId === didId)
-      .sort(
-        (a, b) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+    return await db
+      .select()
+      .from(activities)
+      .where(eq(activities.didId, didId))
+      .orderBy(desc(activities.timestamp));
   }
 
   async getActivitiesByUserId(userId: string): Promise<Activity[]> {
     const userDids = await this.getDidsByUserId(userId);
-    const didIds = new Set(userDids.map(d => d.id));
-    return Array.from(this.activities.values())
-      .filter(act => act.didId && didIds.has(act.didId))
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    if (userDids.length === 0) return [];
+    
+    const didIds = userDids.map(d => d.id);
+    return await db
+      .select()
+      .from(activities)
+      .where(inArray(activities.didId, didIds))
+      .orderBy(desc(activities.timestamp));
   }
 
   async createActivity(insertActivity: InsertActivity): Promise<Activity> {
-    const id = randomUUID();
-    const activity: Activity = {
-      ...insertActivity,
-      id,
-      didId: insertActivity.didId || null,
-      metadata: insertActivity.metadata || {},
-      timestamp: new Date(),
-    };
-    this.activities.set(id, activity);
+    const [activity] = await db.insert(activities).values(insertActivity).returning();
     return activity;
   }
 
   // Template operations
-  async getCredentialTemplate(
-    id: string
-  ): Promise<CredentialTemplate | undefined> {
-    return this.templates.get(id);
+  async getCredentialTemplate(id: string): Promise<CredentialTemplate | undefined> {
+    const [template] = await db.select().from(credentialTemplates).where(eq(credentialTemplates.id, id));
+    return template;
   }
 
   async getAllCredentialTemplates(): Promise<CredentialTemplate[]> {
-    return Array.from(this.templates.values());
+    await this.ensureTemplatesInitialized();
+    return await db.select().from(credentialTemplates);
   }
 
-  async createCredentialTemplate(
-    insertTemplate: InsertCredentialTemplate
-  ): Promise<CredentialTemplate> {
-    const id = randomUUID();
-    const template: CredentialTemplate = {
-      ...insertTemplate,
-      id,
-      requiredFields: insertTemplate.requiredFields || null,
-      schema: insertTemplate.schema || {},
-      createdAt: new Date(),
-    };
-    this.templates.set(id, template);
+  async createCredentialTemplate(insertTemplate: InsertCredentialTemplate): Promise<CredentialTemplate> {
+    const [template] = await db.insert(credentialTemplates).values(insertTemplate).returning();
     return template;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DbStorage();
