@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Copy, QrCode, CheckCircle } from "lucide-react";
 import type { Did } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 interface DidDisplayProps {
   did: Did;
@@ -91,6 +91,9 @@ export function DidDisplay({ did }: DidDisplayProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>DID QR Code</DialogTitle>
+            <DialogDescription>
+              Scan this QR code to share your decentralized identifier
+            </DialogDescription>
           </DialogHeader>
           <div className="py-6">
             <div className="flex items-center justify-center p-8 bg-white rounded-lg">

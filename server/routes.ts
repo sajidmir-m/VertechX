@@ -15,8 +15,9 @@ import {
   selectiveDisclosureRequestSchema,
   verifyCredentialRequestSchema,
 } from "./validation";
-import { hashPassword, comparePassword, requireAuth } from "./auth";
+import { hashPassword, requireAuth } from "./auth";
 import { z } from "zod";
+import { supabaseAdmin, supabaseClient } from "./supabase";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication Routes
@@ -24,6 +25,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const schema = z.object({
         username: z.string().min(3).max(50),
+        email: z.string().email(),
         password: z.string().min(6),
       });
       
@@ -35,17 +37,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { username, password } = validation.data;
+      const { username, email, password } = validation.data;
 
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
         return res.status(400).json({ message: "Username already exists" });
       }
 
+      const existingEmail = await storage.getUserByEmail(email);
+      if (existingEmail) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      const { data: createdUser, error: createError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            username,
+          },
+        });
+
+      if (createError || !createdUser?.user) {
+        const message =
+          createError?.message ||
+          "Failed to create Supabase user account. Please try again.";
+        return res.status(400).json({ message });
+      }
+
       const hashedPassword = await hashPassword(password);
       const user = await storage.createUser({
         username,
         password: hashedPassword,
+        email,
+        supabaseUserId: createdUser.user.id,
       });
 
       req.session.userId = user.id;
@@ -53,6 +79,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         id: user.id,
         username: user.username,
+        email: user.email,
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to register user" });
@@ -62,7 +89,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const schema = z.object({
-        username: z.string(),
+        email: z.string().email(),
         password: z.string(),
       });
       
@@ -71,16 +98,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid credentials" });
       }
 
-      const { username, password } = validation.data;
+      const { email, password } = validation.data;
 
-      const user = await storage.getUserByUsername(username);
-      if (!user) {
+      const { data: signInData, error: signInError } =
+        await supabaseClient.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+      if (signInError || !signInData.user) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
-      const isValidPassword = await comparePassword(password, user.password);
-      if (!isValidPassword) {
-        return res.status(401).json({ message: "Invalid credentials" });
+      const supabaseUserId = signInData.user.id;
+
+      let user = await storage.getUserBySupabaseId(supabaseUserId);
+
+      if (!user) {
+        const existingByEmail = await storage.getUserByEmail(email);
+        if (existingByEmail) {
+          const updated =
+            await storage.updateUserAuthInfo(existingByEmail.id, {
+              supabaseUserId,
+            });
+          user = updated ?? existingByEmail;
+        }
+      }
+
+      if (!user) {
+        const username =
+          (signInData.user.user_metadata as { username?: string } | null)?.username ||
+          email.split("@")[0];
+        const hashedPassword = await hashPassword(password);
+        user = await storage.createUser({
+          username,
+          password: hashedPassword,
+          email,
+          supabaseUserId,
+        });
+      } else if (user.email !== email) {
+        const updated = await storage.updateUserAuthInfo(user.id, { email });
+        user = updated ?? user;
       }
 
       req.session.userId = user.id;
@@ -88,6 +146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         id: user.id,
         username: user.username,
+        email: user.email,
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to login" });
@@ -117,6 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         id: user.id,
         username: user.username,
+        email: user.email,
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch user" });
@@ -251,6 +311,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         signature: await signData(credentialSubject, did.privateKey),
       };
 
+      const shareToken = randomUUID();
+
       const credential = await storage.createCredential({
         didId: did.id,
         type,
@@ -264,6 +326,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         credentialSubject,
         proof,
         ipfsCid,
+        shareToken,
         metadata: {
           issuanceDate: new Date().toISOString(),
         },
@@ -352,12 +415,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (typeof credential === "string") {
-        const foundCredential = await storage.getCredential(credential);
-        if (foundCredential) {
-          credential = foundCredential;
-        } else {
+        const trimmed = credential.trim();
+
+        const shareTokenMatch = trimmed.match(/(?:\/verify\/)([A-Za-z0-9-]+)/);
+        const possibleShareToken = shareTokenMatch ? shareTokenMatch[1] : trimmed;
+
+        let foundCredential =
+          (await storage.getCredential(trimmed)) ||
+          (await storage.getCredentialByShareToken(possibleShareToken)) ||
+          (await storage.getCredential(possibleShareToken));
+
+        if (!foundCredential && trimmed.includes("?")) {
+          const url = new URL(trimmed, "https://placeholder.local");
+          const tokenParam = url.searchParams.get("shareToken");
+          if (tokenParam) {
+            foundCredential = await storage.getCredentialByShareToken(tokenParam);
+          }
+        }
+
+        if (!foundCredential) {
           return res.status(400).json({ message: "Invalid credential format" });
         }
+
+        credential = foundCredential;
       }
 
       if (!credential.proof || !credential.credentialSubject || !credential.title) {
@@ -365,13 +445,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const signatureValid = true;
+      const status =
+        typeof credential.status === "string"
+          ? credential.status.trim().toLowerCase()
+          : "";
       const notExpired = credential.expiresAt
         ? new Date(credential.expiresAt) > new Date()
         : true;
       const issuerTrusted = true;
       const proofVerified = true;
+      const statusVerified = status === "verified";
 
-      const isValid = signatureValid && notExpired && issuerTrusted && proofVerified;
+      const isValid = signatureValid && notExpired && issuerTrusted && proofVerified && statusVerified;
 
       const verification = await storage.createVerification({
         credentialId: credential.id || null,
@@ -402,7 +487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json({
-        isValid: isValid ? "true" : "false",
+        isValid,
         credential,
         details: {
           signatureValid,
@@ -496,22 +581,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public Verification by Share Token
   app.get("/api/verify/:shareToken", async (req, res) => {
     try {
-      const credential = await storage.getCredentialByShareToken(req.params.shareToken);
+      const shareToken = req.params.shareToken.trim();
+
+      const credential =
+        (await storage.getCredentialByShareToken(shareToken)) ||
+        (await storage.getCredential(shareToken));
+
       if (!credential) {
         return res.status(404).json({ message: "Credential not found" });
       }
 
+      const status =
+        typeof credential.status === "string"
+          ? credential.status.trim().toLowerCase()
+          : "";
       const notExpired = credential.expiresAt
         ? new Date(credential.expiresAt) > new Date()
         : true;
 
-      const isValid = notExpired && credential.status === "verified";
+      const isValid = notExpired && status === "verified";
 
       res.json({
         credential,
         isValid,
         verification: {
-          verified: credential.status === "verified",
+          verified: status === "verified",
           notExpired,
           issuer: credential.issuer,
           issuedAt: credential.issuedAt,

@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 
 interface VerificationResult {
-  isValid: string;
+  isValid: boolean;
   credential?: any;
   details: {
     signatureValid: boolean;
@@ -28,17 +28,23 @@ export default function Verify() {
 
   const verifyMutation = useMutation({
     mutationFn: async (data: string) => {
-      return await apiRequest("POST", "/api/verify", { credentialData: data });
+      const res = await apiRequest("POST", "/api/verify", { credentialData: data });
+      const json = await res.json();
+      // Normalize isValid to boolean
+      return {
+        ...json,
+        isValid: json.isValid === true || json.isValid === "true",
+      };
     },
     onSuccess: (result: VerificationResult) => {
       setVerificationResult(result);
       toast({
-        title: result.isValid === "true" ? "Verification Successful" : "Verification Failed",
+        title: result.isValid ? "Verification Successful" : "Verification Failed",
         description:
-          result.isValid === "true"
+          result.isValid
             ? "The credential is valid and verified."
             : "The credential could not be verified.",
-        variant: result.isValid === "true" ? "default" : "destructive",
+        variant: result.isValid ? "default" : "destructive",
       });
     },
     onError: () => {
@@ -51,7 +57,8 @@ export default function Verify() {
   });
 
   const handleVerify = () => {
-    if (!credentialData.trim()) {
+    const trimmed = credentialData.trim();
+    if (!trimmed) {
       toast({
         title: "Error",
         description: "Please paste credential data to verify.",
@@ -60,7 +67,7 @@ export default function Verify() {
       return;
     }
     setVerificationResult(null);
-    verifyMutation.mutate(credentialData);
+    verifyMutation.mutate(trimmed);
   };
 
   const handleReset = () => {
@@ -91,8 +98,17 @@ export default function Verify() {
               </div>
             </div>
 
+            <div className="mb-4 rounded-lg border bg-muted/40 p-4 text-xs text-muted-foreground space-y-1">
+              <p className="text-sm font-semibold text-foreground">Accepted formats</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Public share link (e.g. <span className="font-mono">https://your-app/verify/abcd-1234</span>)</li>
+                <li>Share token alone (UUID such as <span className="font-mono">abcd-1234-ef56</span>)</li>
+                <li>Raw credential JSON copied from the credential detail modal</li>
+              </ul>
+            </div>
+
             <Textarea
-              placeholder='Paste credential data here (JSON format)...'
+              placeholder="Paste share link, token, or raw credential JSON..."
               value={credentialData}
               onChange={(e) => setCredentialData(e.target.value)}
               className="font-mono text-xs min-h-[300px]"
@@ -152,7 +168,7 @@ export default function Verify() {
             <>
               <Card className="p-6">
                 <div className="flex items-center gap-3 mb-6">
-                  {verificationResult.isValid === "true" ? (
+                  {verificationResult.isValid ? (
                     <>
                       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-status-online/10">
                         <CheckCircle className="h-6 w-6 text-status-online" />
@@ -180,12 +196,15 @@ export default function Verify() {
                 </div>
 
                 <div className="space-y-3">
-                  {[
-                    { label: "Signature Valid", value: verificationResult.details.signatureValid },
-                    { label: "Not Expired", value: verificationResult.details.notExpired },
-                    { label: "Issuer Trusted", value: verificationResult.details.issuerTrusted },
-                    { label: "Proof Verified", value: verificationResult.details.proofVerified },
-                  ].map((check) => (
+                {(verificationResult.details
+                  ? [
+                      { label: "Signature Valid", value: verificationResult.details.signatureValid },
+                      { label: "Not Expired", value: verificationResult.details.notExpired },
+                      { label: "Issuer Trusted", value: verificationResult.details.issuerTrusted },
+                      { label: "Proof Verified", value: verificationResult.details.proofVerified },
+                    ]
+                  : []
+                ).map((check) => (
                     <div
                       key={check.label}
                       className="flex items-center justify-between py-2 border-b last:border-0"

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,18 @@ import { Input } from "@/components/ui/input";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, Building2, GraduationCap, Briefcase, CreditCard } from "lucide-react";
+import {
+  Shield,
+  GraduationCap,
+  Briefcase,
+  CreditCard,
+  PlusCircle,
+  Trash2,
+  Code,
+} from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface RequestCredentialDialogProps {
   open: boolean;
@@ -57,16 +68,99 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
   const { toast } = useToast();
   const [selectedType, setSelectedType] = useState("");
   const [title, setTitle] = useState("");
+  const [useCustomData, setUseCustomData] = useState(false);
+  const createEmptyField = () => ({
+    id: Math.random().toString(36).slice(2, 10),
+    key: "",
+    value: "",
+  });
+  const [customFields, setCustomFields] = useState<Array<{ id: string; key: string; value: string }>>([
+    createEmptyField(),
+  ]);
+  const [showAdvancedJson, setShowAdvancedJson] = useState(false);
+  const [customJson, setCustomJson] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [documentUrl, setDocumentUrl] = useState("");
+
+  const addCustomField = () => {
+    setCustomFields((prev) => [...prev, createEmptyField()]);
+  };
+
+  const updateCustomField = (id: string, field: "key" | "value", value: string) => {
+    setCustomFields((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const removeCustomField = (id: string) => {
+    setCustomFields((prev) => (prev.length === 1 ? prev : prev.filter((item) => item.id !== id)));
+  };
+
+  const coerceFieldValue = (rawValue: string): unknown => {
+    const value = rawValue.trim();
+    if (value === "") return "";
+
+    if (/^-?\d+(\.\d+)?$/.test(value)) {
+      return Number(value);
+    }
+
+    if (value.toLowerCase() === "true" || value.toLowerCase() === "false") {
+      return value.toLowerCase() === "true";
+    }
+
+    if (
+      (value.startsWith("{") && value.endsWith("}")) ||
+      (value.startsWith("[") && value.endsWith("]"))
+    ) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+
+    return value;
+  };
+
+  const customDataPreview = useMemo(() => {
+    return customFields.reduce<Record<string, unknown>>((acc, field) => {
+      const key = field.key.trim();
+      if (!key) return acc;
+      acc[key] = coerceFieldValue(field.value);
+      return acc;
+    }, {});
+  }, [customFields]);
+
+  useEffect(() => {
+    if (useCustomData && customFields.length === 0) {
+      setCustomFields([createEmptyField()]);
+    }
+    if (!useCustomData) {
+      setShowAdvancedJson(false);
+      setCustomJson("");
+      setCustomFields([createEmptyField()]);
+      setImageUrl("");
+      setDocumentUrl("");
+    }
+  }, [useCustomData]);
+
+  useEffect(() => {
+    if (showAdvancedJson && customJson.trim() === "") {
+      if (Object.keys(customDataPreview).length > 0) {
+        setCustomJson(JSON.stringify(customDataPreview, null, 2));
+      }
+    }
+  }, [showAdvancedJson, customDataPreview, customJson]);
 
   const requestMutation = useMutation({
-    mutationFn: async () => {
-      const selected = credentialTypes.find((t) => t.value === selectedType);
-      const credentialTitle = title || selected?.label || "Credential";
-      return await apiRequest("POST", "/api/credentials/request", {
-        type: selectedType,
-        title: credentialTitle,
-        issuer: selected?.issuer || "Unknown Issuer",
-      });
+    mutationFn: async (payload: {
+      mode: "template" | "custom";
+      data: Record<string, unknown>;
+    }) => {
+      if (payload.mode === "custom") {
+        return await apiRequest("POST", "/api/credentials/custom", payload.data);
+      }
+      return await apiRequest("POST", "/api/credentials/request", payload.data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/credentials"] });
@@ -78,6 +172,12 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
       onOpenChange(false);
       setSelectedType("");
       setTitle("");
+      setUseCustomData(false);
+      setCustomFields([createEmptyField()]);
+      setShowAdvancedJson(false);
+      setCustomJson("");
+      setImageUrl("");
+      setDocumentUrl("");
     },
     onError: () => {
       toast({
@@ -97,22 +197,331 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
       });
       return;
     }
-    requestMutation.mutate();
+    const selected = credentialTypes.find((t) => t.value === selectedType);
+    const credentialTitle = title || selected?.label || "Credential";
+
+    if (useCustomData) {
+      let credentialData: Record<string, unknown> = {};
+
+      if (showAdvancedJson) {
+        if (!customJson.trim()) {
+          toast({
+            title: "Missing data",
+            description: "Paste your credential JSON data before submitting.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        let parsedData: unknown;
+        try {
+          parsedData = JSON.parse(customJson);
+        } catch (error: any) {
+          toast({
+            title: "Invalid JSON",
+            description: error?.message || "Please provide valid JSON for your credential data.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (typeof parsedData !== "object" || parsedData === null || Array.isArray(parsedData)) {
+          toast({
+            title: "Invalid structure",
+            description: "Credential data must be a JSON object (key-value pairs).",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        credentialData = parsedData as Record<string, unknown>;
+      } else {
+        const simpleData = customDataPreview;
+        if (Object.keys(simpleData).length === 0) {
+          toast({
+            title: "Missing fields",
+            description: "Add at least one field when using the simple form.",
+            variant: "destructive",
+          });
+          return;
+        }
+        credentialData = simpleData;
+      }
+
+      requestMutation.mutate({
+        mode: "custom",
+        data: {
+          type: selectedType,
+          title: credentialTitle,
+          issuer: selected?.issuer || "Unknown Issuer",
+          credentialData,
+          imageUrl: imageUrl.trim() || undefined,
+          documentUrl: documentUrl.trim() || undefined,
+        },
+      });
+      return;
+    }
+
+    requestMutation.mutate({
+      mode: "template",
+      data: {
+        type: selectedType,
+        title: credentialTitle,
+        issuer: selected?.issuer || "Unknown Issuer",
+      },
+    });
   };
 
   const selectedCredential = credentialTypes.find((t) => t.value === selectedType);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent className={useCustomData ? "max-h-[90vh] flex flex-col p-0" : ""}>
+        <DialogHeader className={useCustomData ? "px-6 pt-6 pb-4" : ""}>
           <DialogTitle>Request Credential</DialogTitle>
           <DialogDescription>
             Request a verifiable credential from a trusted issuer
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        {useCustomData ? (
+          <>
+            <ScrollArea className="flex-1 px-6">
+              <div className="space-y-4 pb-4">
+                <div className="space-y-2">
+                  <Label htmlFor="credential-type">Credential Type</Label>
+                  <Select value={selectedType} onValueChange={setSelectedType}>
+                    <SelectTrigger id="credential-type" data-testid="select-credential-type">
+                      <SelectValue placeholder="Select credential type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {credentialTypes.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex items-center gap-2">
+                            <type.icon className="h-4 w-4" />
+                            {type.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="title">Title (Optional)</Label>
+                  <Input
+                    id="title"
+                    placeholder="e.g., Bachelor of Science in Computer Science"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    data-testid="input-credential-title"
+                  />
+                </div>
+
+                {selectedCredential && (
+                  <div className="rounded-lg border bg-muted/50 p-4">
+                    <div className="flex items-center gap-3 mb-2">
+                      <selectedCredential.icon className="h-5 w-5 text-primary" />
+                      <div>
+                        <p className="font-medium text-sm">{selectedCredential.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Issuer: {selectedCredential.issuer}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This credential will be cryptographically signed and stored on IPFS.
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2 pt-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <Label htmlFor="custom-data-switch">Provide custom credential data</Label>
+                    <Switch
+                      id="custom-data-switch"
+                      checked={useCustomData}
+                      onCheckedChange={setUseCustomData}
+                      data-testid="switch-custom-data"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enable this to input real credential fields (simple form or JSON) plus optional media links.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border bg-card/70 shadow-xl">
+                  <div className="space-y-6 p-4 lg:p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-foreground">Credential Attributes</p>
+                      <p className="text-xs text-muted-foreground max-w-md">
+                        Capture each real-world data point. We’ll format it into valid JSON for the credential record.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 self-start rounded-full border bg-background px-3 py-1.5 text-xs sm:self-auto">
+                      <Switch
+                        id="advanced-json-toggle"
+                        checked={showAdvancedJson}
+                        onCheckedChange={setShowAdvancedJson}
+                        data-testid="switch-advanced-json"
+                      />
+                      <Label htmlFor="advanced-json-toggle" className="flex items-center gap-1 text-muted-foreground">
+                        <Code className="h-3 w-3" />
+                        JSON editor
+                      </Label>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                    <div className="space-y-4">
+                      {showAdvancedJson ? (
+                        <div className="space-y-2">
+                          <Textarea
+                            id="customJson"
+                            value={customJson}
+                            onChange={(e) => setCustomJson(e.target.value)}
+                            placeholder={`{
+  "studentName": "Aisha Shah",
+  "degree": "Bachelor of Science",
+  "major": "Physics",
+  "graduationYear": 2022
+}`}
+                            className="font-mono text-xs min-h-[260px] rounded-md border bg-background p-3"
+                            data-testid="textarea-custom-json"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Paste or edit raw JSON. We’ll validate the structure before submission.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="grid gap-3">
+                            {customFields.map((field, index) => (
+                              <div
+                                key={field.id}
+                                className="grid gap-3 rounded-xl border bg-background/80 p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]"
+                              >
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium text-muted-foreground">Field Name</Label>
+                                  <Input
+                                    value={field.key}
+                                    onChange={(e) => updateCustomField(field.id, "key", e.target.value)}
+                                    placeholder="e.g., studentName"
+                                    data-testid={`input-custom-key-${index}`}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium text-muted-foreground">Field Value</Label>
+                                  <Input
+                                    value={field.value}
+                                    onChange={(e) => updateCustomField(field.id, "value", e.target.value)}
+                                    placeholder='e.g., "Aisha Shah"'
+                                    data-testid={`input-custom-value-${index}`}
+                                  />
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Numbers, booleans, arrays, and objects are auto-detected. Use valid JSON for complex values.
+                                  </p>
+                                </div>
+                                <div className="flex items-start justify-end pt-1 sm:pt-5">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-muted-foreground hover:text-destructive"
+                                    onClick={() => removeCustomField(field.id)}
+                                    disabled={customFields.length === 1}
+                                    data-testid={`button-remove-field-${index}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="inline-flex items-center gap-2"
+                            onClick={addCustomField}
+                            data-testid="button-add-custom-field"
+                          >
+                            <PlusCircle className="h-4 w-4" />
+                            Add field
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border bg-background/80 p-3">
+                      <p className="text-xs font-semibold text-muted-foreground mb-2">
+                        JSON Preview
+                      </p>
+                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs font-mono">
+                        {showAdvancedJson && customJson.trim()
+                          ? customJson
+                          : JSON.stringify(customDataPreview, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="imageUrl">Credential Image URL (optional)</Label>
+                      <Input
+                        id="imageUrl"
+                        type="url"
+                        placeholder="https://your-storage.com/credential-photo.jpg"
+                        value={imageUrl}
+                        onChange={(e) => setImageUrl(e.target.value)}
+                        data-testid="input-image-url"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Provide a publicly accessible image (PNG, JPG, etc.) for quick visual verification.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="documentUrl">Supporting Document URL (optional)</Label>
+                      <Input
+                        id="documentUrl"
+                        type="url"
+                        placeholder="https://your-storage.com/credential-document.pdf"
+                        value={documentUrl}
+                        onChange={(e) => setDocumentUrl(e.target.value)}
+                        data-testid="input-document-url"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Link to the underlying PDF or notarized document. Ideal for external auditors.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </ScrollArea>
+            <div className="flex gap-3 px-6 pb-6 pt-4 border-t bg-background">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="flex-1"
+                data-testid="button-cancel-request"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={requestMutation.isPending || !selectedType}
+                className="flex-1"
+                data-testid="button-submit-request"
+              >
+                {requestMutation.isPending ? "Requesting..." : "Request Credential"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-4 py-4 px-6">
           <div className="space-y-2">
             <Label htmlFor="credential-type">Credential Type</Label>
             <Select value={selectedType} onValueChange={setSelectedType}>
@@ -160,25 +569,41 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
             </div>
           )}
 
-          <div className="flex gap-3 pt-2">
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              className="flex-1"
-              data-testid="button-cancel-request"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={requestMutation.isPending || !selectedType}
-              className="flex-1"
-              data-testid="button-submit-request"
-            >
-              {requestMutation.isPending ? "Requesting..." : "Request Credential"}
-            </Button>
+            <div className="space-y-2 pt-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Label htmlFor="custom-data-switch">Provide custom credential data</Label>
+                <Switch
+                  id="custom-data-switch"
+                  checked={useCustomData}
+                  onCheckedChange={setUseCustomData}
+                  data-testid="switch-custom-data"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enable this to input real credential fields (simple form or JSON) plus optional media links.
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="flex-1"
+                data-testid="button-cancel-request"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={requestMutation.isPending || !selectedType}
+                className="flex-1"
+                data-testid="button-submit-request"
+              >
+                {requestMutation.isPending ? "Requesting..." : "Request Credential"}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );

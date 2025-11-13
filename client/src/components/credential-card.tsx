@@ -8,10 +8,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical, Eye, Share2, Download, Ban, CheckCircle, Clock, XCircle, AlertTriangle } from "lucide-react";
+import {
+  MoreVertical,
+  Eye,
+  Share2,
+  Download,
+  Ban,
+  CheckCircle,
+  Clock,
+  XCircle,
+  AlertTriangle,
+  Shield,
+} from "lucide-react";
 import type { Credential } from "@shared/schema";
 import { CredentialDetailModal } from "./credential-detail-modal";
 import { SelectiveDisclosureDialog } from "./selective-disclosure-dialog";
+import { useToast } from "@/hooks/use-toast";
+import {
+  downloadCredentialAsPdf,
+  shareCredentialLink,
+} from "@/lib/credentialActions";
 
 interface CredentialCardProps {
   credential: Credential;
@@ -21,6 +37,45 @@ interface CredentialCardProps {
 export function CredentialCard({ credential, compact = false }: CredentialCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const { toast } = useToast();
+
+  const handleDownload = () => {
+    try {
+      downloadCredentialAsPdf(credential);
+      toast({
+        title: "Download started",
+        description: "Your credential PDF is being generated.",
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Download failed",
+        description: "We couldn't generate the PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      const result = await shareCredentialLink(credential);
+      toast({
+        title: "Share link ready",
+        description:
+          result.method === "web-share"
+            ? "Shared via your device's share dialog."
+            : "Share link copied to clipboard.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Share unavailable",
+        description:
+          error?.message ||
+          "Unable to share this credential. Ensure it has a share token.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const statusConfig = {
     verified: {
@@ -57,9 +112,9 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
       <Card className="hover-elevate overflow-hidden" data-testid={`credential-card-${credential.id}`}>
         <div className={compact ? "p-4" : "p-6"}>
           {/* Header */}
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
+          <div className="flex flex-col gap-3 mb-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex-1 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="text-xs" data-testid="badge-credential-type">
                   {credential.type}
                 </Badge>
@@ -68,44 +123,53 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
                   {status.label}
                 </Badge>
               </div>
-              <h3 className="font-semibold text-lg mb-1" data-testid="text-credential-title">
+              <h3 className="font-semibold text-lg leading-snug" data-testid="text-credential-title">
                 {credential.title}
               </h3>
               <p className="text-sm text-muted-foreground" data-testid="text-credential-issuer">
                 Issued by {credential.issuer}
               </p>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" data-testid="button-credential-menu">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setShowDetails(true)} data-testid="menu-view-details">
-                  <Eye className="mr-2 h-4 w-4" />
-                  View Details
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowShare(true)} data-testid="menu-share">
-                  <Share2 className="mr-2 h-4 w-4" />
-                  Share
-                </DropdownMenuItem>
-                <DropdownMenuItem data-testid="menu-download">
-                  <Download className="mr-2 h-4 w-4" />
-                  Download
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive" data-testid="menu-revoke">
-                  <Ban className="mr-2 h-4 w-4" />
-                  Revoke
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="self-start md:self-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="ml-auto" data-testid="button-credential-menu">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setShowDetails(true)} data-testid="menu-view-details">
+                    <Eye className="mr-2 h-4 w-4" />
+                    View Details
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleShare} data-testid="menu-share">
+                    <Share2 className="mr-2 h-4 w-4" />
+                    Share Link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setShowShare(true)}
+                    data-testid="menu-selective-disclosure"
+                  >
+                    <Shield className="mr-2 h-4 w-4" />
+                    Selective Disclosure
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDownload} data-testid="menu-download">
+                    <Download className="mr-2 h-4 w-4" />
+                    Download
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" data-testid="menu-revoke">
+                    <Ban className="mr-2 h-4 w-4" />
+                    Revoke
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
           {/* Body */}
           {!compact && (
             <div className="space-y-3 mb-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-muted-foreground mb-1">Issued</p>
                   <p className="font-medium" data-testid="text-issued-date">
@@ -145,7 +209,7 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
 
           {/* Footer */}
           {!compact && (
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
                 size="sm"
@@ -159,7 +223,7 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
               <Button
                 size="sm"
                 className="flex-1"
-                onClick={() => setShowShare(true)}
+                onClick={handleShare}
                 data-testid="button-share-credential"
               >
                 <Share2 className="mr-2 h-4 w-4" />

@@ -40,15 +40,20 @@ export default function Landing() {
               Manage your credentials with blockchain-based DIDs and verifiable credentials.
             </p>
             
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
               <Link href="/wallet">
-                <Button size="lg" className="h-12 px-8" data-testid="button-create-wallet">
+                <Button size="lg" className="h-12 w-full px-8 sm:w-auto" data-testid="button-create-wallet">
                   <Key className="mr-2 h-5 w-5" />
                   Create Your Wallet
                 </Button>
               </Link>
               <Link href="/verify">
-                <Button variant="outline" size="lg" className="h-12 px-8" data-testid="button-verify">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-12 w-full px-8 sm:w-auto"
+                  data-testid="button-verify"
+                >
                   <CheckCircle className="mr-2 h-5 w-5" />
                   Verify Credentials
                 </Button>

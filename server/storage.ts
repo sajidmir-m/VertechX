@@ -28,7 +28,13 @@ export interface IStorage {
   // User operations
   createUser(user: InsertUser): Promise<User>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   getUserById(id: string): Promise<User | undefined>;
+  getUserBySupabaseId(supabaseUserId: string): Promise<User | undefined>;
+  updateUserAuthInfo(
+    userId: string,
+    data: Partial<Pick<User, "email" | "supabaseUserId">>
+  ): Promise<User | undefined>;
   updateUserCurrentDid(userId: string, didId: string): Promise<void>;
   
   // DID operations
@@ -137,8 +143,29 @@ export class DbStorage implements IStorage {
     return user;
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
   async getUserById(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserBySupabaseId(supabaseUserId: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.supabaseUserId, supabaseUserId));
+    return user;
+  }
+
+  async updateUserAuthInfo(
+    userId: string,
+    data: Partial<Pick<User, "email" | "supabaseUserId">>
+  ): Promise<User | undefined> {
+    const [user] = await db.update(users).set(data).where(eq(users.id, userId)).returning();
     return user;
   }
 

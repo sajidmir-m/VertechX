@@ -6,24 +6,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield, Check } from "lucide-react";
 
 export default function Register() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const registerMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/auth/register", {
+      const res = await apiRequest("POST", "/api/auth/register", {
         username,
+        email,
         password,
       });
+      return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (user) => {
+      queryClient.setQueryData(["/api/auth/me"], user);
       toast({
         title: "Account created!",
         description: "Your account has been created successfully.",
@@ -42,10 +46,19 @@ export default function Register() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!username || !password || !confirmPassword) {
+    if (!username || !email || !password || !confirmPassword) {
       toast({
         title: "Error",
         description: "Please fill in all fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid email address.",
         variant: "destructive",
       });
       return;
@@ -120,6 +133,19 @@ export default function Register() {
               onChange={(e) => setUsername(e.target.value)}
               disabled={registerMutation.isPending}
               data-testid="input-username"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={registerMutation.isPending}
+              data-testid="input-email"
             />
           </div>
 

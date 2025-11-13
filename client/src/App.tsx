@@ -17,6 +17,7 @@ import Credentials from "@/pages/credentials";
 import Verify from "@/pages/verify";
 import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
+import PublicCredential from "@/pages/public-credential";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -51,17 +52,19 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
         <div className="flex h-screen w-full">
           <AppSidebar />
           <div className="flex flex-col flex-1 overflow-hidden">
-            <header className="flex items-center justify-between px-6 py-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60" data-testid="header-dashboard">
-              <div className="flex items-center gap-4">
+            <header className="flex flex-col gap-3 px-4 py-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:flex-row sm:items-center sm:justify-between sm:px-6" data-testid="header-dashboard">
+              <div className="flex items-center gap-3 sm:gap-4">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <div>
                   <h1 className="text-sm font-semibold" data-testid="heading-app-name">Identity Vault</h1>
                   <p className="text-xs text-muted-foreground" data-testid="text-app-tagline">Decentralized Credentials</p>
                 </div>
               </div>
-              <ThemeToggle />
+              <div className="flex items-center justify-end">
+                <ThemeToggle />
+              </div>
             </header>
-            <main className="flex-1 overflow-y-auto p-6 md:p-8">
+            <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
               <div className="mx-auto max-w-7xl">
                 {children}
               </div>
@@ -97,6 +100,8 @@ function Router() {
           <Credentials />
         </DashboardLayout>
       </Route>
+
+      <Route path="/verify/:shareToken" component={PublicCredential} />
 
       <Route path="/verify">
         <DashboardLayout>

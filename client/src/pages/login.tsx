@@ -6,23 +6,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const loginMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/auth/login", {
-        username,
+      const res = await apiRequest("POST", "/api/auth/login", {
+        email,
         password,
       });
+      return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (user) => {
+      queryClient.setQueryData(["/api/auth/me"], user);
       toast({
         title: "Welcome back!",
         description: "You have successfully logged in.",
@@ -40,10 +42,10 @@ export default function Login() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) {
+    if (!email || !password) {
       toast({
         title: "Error",
-        description: "Please fill in all fields.",
+        description: "Please enter your email and password.",
         variant: "destructive",
       });
       return;
@@ -66,15 +68,15 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="username"
-              type="text"
-              placeholder="Enter your username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               disabled={loginMutation.isPending}
-              data-testid="input-username"
+              data-testid="input-email"
             />
           </div>
 
