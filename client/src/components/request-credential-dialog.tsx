@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,8 @@ import {
   PlusCircle,
   Trash2,
   Code,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -69,6 +71,7 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
   const [selectedType, setSelectedType] = useState("");
   const [title, setTitle] = useState("");
   const [useCustomData, setUseCustomData] = useState(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const createEmptyField = () => ({
     id: Math.random().toString(36).slice(2, 10),
     key: "",
@@ -81,6 +84,20 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
   const [customJson, setCustomJson] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [documentUrl, setDocumentUrl] = useState("");
+
+  const scrollUp = () => {
+    const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    if (scrollContainer) {
+      scrollContainer.scrollBy({ top: -200, behavior: 'smooth' });
+    }
+  };
+
+  const scrollDown = () => {
+    const scrollContainer = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    if (scrollContainer) {
+      scrollContainer.scrollBy({ top: 200, behavior: 'smooth' });
+    }
+  };
 
   const addCustomField = () => {
     setCustomFields((prev) => [...prev, createEmptyField()]);
@@ -276,8 +293,8 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={useCustomData ? "max-h-[90vh] flex flex-col p-0" : ""}>
-        <DialogHeader className={useCustomData ? "px-6 pt-6 pb-4" : ""}>
+      <DialogContent className={useCustomData ? "max-h-[90vh] max-w-[95vw] sm:max-w-[90vw] md:max-w-[85vw] lg:max-w-4xl flex flex-col p-0 overflow-hidden" : "max-w-md"}>
+        <DialogHeader className={useCustomData ? "px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 flex-shrink-0" : ""}>
           <DialogTitle>Request Credential</DialogTitle>
           <DialogDescription>
             Request a verifiable credential from a trusted issuer
@@ -286,7 +303,8 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
 
         {useCustomData ? (
           <>
-            <ScrollArea className="flex-1 px-6">
+          <div className="flex flex-1 min-h-0 relative">
+            <ScrollArea ref={scrollAreaRef} className="flex-1 px-4 sm:px-6 pr-12 sm:pr-16">
               <div className="space-y-4 pb-4">
                 <div className="space-y-2">
                   <Label htmlFor="credential-type">Credential Type</Label>
@@ -350,16 +368,16 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                   </p>
                 </div>
 
-                <div className="rounded-2xl border bg-card/70 shadow-xl">
-                  <div className="space-y-6 p-4 lg:p-6">
+                <div className="rounded-2xl border bg-card/70 shadow-xl overflow-hidden">
+                  <div className="space-y-4 sm:space-y-6 p-3 sm:p-4 lg:p-6">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-foreground">Credential Attributes</p>
                       <p className="text-xs text-muted-foreground max-w-md">
-                        Capture each real-world data point. We’ll format it into valid JSON for the credential record.
+                        Capture each real-world data point. We'll format it into valid JSON for the credential record.
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 self-start rounded-full border bg-background px-3 py-1.5 text-xs sm:self-auto">
+                    <div className="flex items-center gap-2 self-start rounded-full border bg-background px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:self-auto">
                       <Switch
                         id="advanced-json-toggle"
                         checked={showAdvancedJson}
@@ -368,12 +386,12 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                       />
                       <Label htmlFor="advanced-json-toggle" className="flex items-center gap-1 text-muted-foreground">
                         <Code className="h-3 w-3" />
-                        JSON editor
+                        <span className="hidden sm:inline">JSON editor</span>
                       </Label>
                     </div>
                   </div>
 
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                  <div className="grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
                     <div className="space-y-4">
                       {showAdvancedJson ? (
                         <div className="space-y-2">
@@ -387,7 +405,7 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
   "major": "Physics",
   "graduationYear": 2022
 }`}
-                            className="font-mono text-xs min-h-[260px] rounded-md border bg-background p-3"
+                            className="font-mono text-[10px] sm:text-xs min-h-[200px] sm:min-h-[260px] rounded-md border bg-background p-2 sm:p-3"
                             data-testid="textarea-custom-json"
                           />
                           <p className="text-xs text-muted-foreground">
@@ -400,7 +418,7 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                             {customFields.map((field, index) => (
                               <div
                                 key={field.id}
-                                className="grid gap-3 rounded-xl border bg-background/80 p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]"
+                                className="grid gap-2 sm:gap-3 rounded-xl border bg-background/80 p-2 sm:p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]"
                               >
                                 <div className="space-y-1">
                                   <Label className="text-xs font-medium text-muted-foreground">Field Name</Label>
@@ -454,11 +472,11 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                       )}
                     </div>
 
-                    <div className="rounded-lg border bg-background/80 p-3">
+                    <div className="rounded-lg border bg-background/80 p-2 sm:p-3">
                       <p className="text-xs font-semibold text-muted-foreground mb-2">
                         JSON Preview
                       </p>
-                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs font-mono">
+                      <pre className="max-h-48 sm:max-h-64 overflow-auto whitespace-pre-wrap break-all text-[10px] sm:text-xs font-mono p-2">
                         {showAdvancedJson && customJson.trim()
                           ? customJson
                           : JSON.stringify(customDataPreview, null, 2)}
@@ -466,7 +484,7 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                     </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="imageUrl">Credential Image URL (optional)</Label>
                       <Input
@@ -501,24 +519,50 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
               </div>
             </div>
             </ScrollArea>
-            <div className="flex gap-3 px-6 pb-6 pt-4 border-t bg-background">
+            
+            {/* Scroll Buttons */}
+            <div className="flex flex-col gap-2 pr-2 sm:pr-4 py-2 absolute right-0 top-1/2 -translate-y-1/2 z-10">
               <Button
+                type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
-                className="flex-1"
-                data-testid="button-cancel-request"
+                size="icon"
+                className="h-8 w-8 rounded-full shadow-md bg-background/95 backdrop-blur"
+                onClick={scrollUp}
+                aria-label="Scroll up"
               >
-                Cancel
+                <ChevronUp className="h-4 w-4" />
               </Button>
               <Button
-                onClick={handleSubmit}
-                disabled={requestMutation.isPending || !selectedType}
-                className="flex-1"
-                data-testid="button-submit-request"
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 rounded-full shadow-md bg-background/95 backdrop-blur"
+                onClick={scrollDown}
+                aria-label="Scroll down"
               >
-                {requestMutation.isPending ? "Requesting..." : "Request Credential"}
+                <ChevronDown className="h-4 w-4" />
               </Button>
             </div>
+          </div>
+          
+          <div className="flex gap-3 px-4 sm:px-6 pb-4 sm:pb-6 pt-3 sm:pt-4 border-t bg-background flex-shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="flex-1"
+              data-testid="button-cancel-request"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={requestMutation.isPending || !selectedType}
+              className="flex-1"
+              data-testid="button-submit-request"
+            >
+              {requestMutation.isPending ? "Requesting..." : "Request Credential"}
+            </Button>
+          </div>
           </>
         ) : (
           <div className="space-y-4 py-4 px-6">
@@ -584,25 +628,25 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
               </p>
             </div>
 
-            <div className="flex gap-3 pt-2">
-              <Button
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                className="flex-1"
-                data-testid="button-cancel-request"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSubmit}
-                disabled={requestMutation.isPending || !selectedType}
-                className="flex-1"
-                data-testid="button-submit-request"
-              >
-                {requestMutation.isPending ? "Requesting..." : "Request Credential"}
-              </Button>
-            </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="flex-1"
+              data-testid="button-cancel-request"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={requestMutation.isPending || !selectedType}
+              className="flex-1"
+              data-testid="button-submit-request"
+            >
+              {requestMutation.isPending ? "Requesting..." : "Request Credential"}
+            </Button>
           </div>
+        </div>
         )}
       </DialogContent>
     </Dialog>
