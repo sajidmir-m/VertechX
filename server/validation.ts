@@ -4,6 +4,8 @@ export const createCredentialRequestSchema = z.object({
   type: z.string().min(1, "Type is required"),
   title: z.string().min(1, "Title is required"),
   issuer: z.string().min(1, "Issuer is required"),
+  issuedDate: z.string().optional(),
+  expiresDate: z.string().optional(),
 });
 
 export const selectiveDisclosureRequestSchema = z.object({

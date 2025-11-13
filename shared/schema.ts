@@ -145,3 +145,27 @@ export const insertCredentialTemplateSchema = createInsertSchema(credentialTempl
 
 export type InsertCredentialTemplate = z.infer<typeof insertCredentialTemplateSchema>;
 export type CredentialTemplate = typeof credentialTemplates.$inferSelect;
+
+// Organizations/Admins for verification portal
+export const organizations = pgTable("organizations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  supabaseUserId: text("supabase_user_id").notNull().unique(),
+  role: text("role").notNull().default("verifier"), // verifier, admin
+  isActive: text("is_active").notNull().default("true"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  metadata: jsonb("metadata"), // Additional org info
+});
+
+export const insertOrganizationSchema = createInsertSchema(organizations).pick({
+  name: true,
+  email: true,
+  password: true,
+  supabaseUserId: true,
+  role: true,
+});
+
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Organization = typeof organizations.$inferSelect;

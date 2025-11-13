@@ -70,6 +70,9 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
   const { toast } = useToast();
   const [selectedType, setSelectedType] = useState("");
   const [title, setTitle] = useState("");
+  const [issuer, setIssuer] = useState("");
+  const [issuedDate, setIssuedDate] = useState("");
+  const [expiresDate, setExpiresDate] = useState("");
   const [useCustomData, setUseCustomData] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const createEmptyField = () => ({
@@ -149,6 +152,23 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
   }, [customFields]);
 
   useEffect(() => {
+    if (!open) {
+      // Reset all fields when dialog closes
+      setSelectedType("");
+      setTitle("");
+      setIssuer("");
+      setIssuedDate("");
+      setExpiresDate("");
+      setUseCustomData(false);
+      setShowAdvancedJson(false);
+      setCustomJson("");
+      setCustomFields([createEmptyField()]);
+      setImageUrl("");
+      setDocumentUrl("");
+    }
+  }, [open]);
+
+  useEffect(() => {
     if (useCustomData && customFields.length === 0) {
       setCustomFields([createEmptyField()]);
     }
@@ -214,6 +234,16 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
       });
       return;
     }
+    
+    if (!issuer.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter an issuer name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     const selected = credentialTypes.find((t) => t.value === selectedType);
     const credentialTitle = title || selected?.label || "Credential";
 
@@ -270,7 +300,9 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
         data: {
           type: selectedType,
           title: credentialTitle,
-          issuer: selected?.issuer || "Unknown Issuer",
+          issuer: issuer.trim(),
+          issuedDate: issuedDate || undefined,
+          expiresDate: expiresDate || undefined,
           credentialData,
           imageUrl: imageUrl.trim() || undefined,
           documentUrl: documentUrl.trim() || undefined,
@@ -284,7 +316,9 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
       data: {
         type: selectedType,
         title: credentialTitle,
-        issuer: selected?.issuer || "Unknown Issuer",
+        issuer: issuer.trim(),
+        issuedDate: issuedDate || undefined,
+        expiresDate: expiresDate || undefined,
       },
     });
   };
@@ -326,6 +360,22 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="issuer">Issuer *</Label>
+                  <Input
+                    id="issuer"
+                    placeholder="e.g., University of Blockchain, Company Name, Government Authority"
+                    value={issuer}
+                    onChange={(e) => setIssuer(e.target.value)}
+                    disabled={requestMutation.isPending}
+                    data-testid="input-issuer"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the name of the organization or authority issuing this credential
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="title">Title (Optional)</Label>
                   <Input
                     id="title"
@@ -336,15 +386,50 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
                   />
                 </div>
 
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="issuedDate">Issued Date (Optional)</Label>
+                    <Input
+                      id="issuedDate"
+                      type="date"
+                      value={issuedDate}
+                      onChange={(e) => setIssuedDate(e.target.value)}
+                      disabled={requestMutation.isPending}
+                      data-testid="input-issued-date"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Date when the credential was issued
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="expiresDate">Expires Date (Optional)</Label>
+                    <Input
+                      id="expiresDate"
+                      type="date"
+                      value={expiresDate}
+                      onChange={(e) => setExpiresDate(e.target.value)}
+                      disabled={requestMutation.isPending}
+                      data-testid="input-expires-date"
+                      min={issuedDate || undefined}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Date when the credential expires
+                    </p>
+                  </div>
+                </div>
+
                 {selectedCredential && (
                   <div className="rounded-lg border bg-muted/50 p-4">
                     <div className="flex items-center gap-3 mb-2">
                       <selectedCredential.icon className="h-5 w-5 text-primary" />
                       <div>
                         <p className="font-medium text-sm">{selectedCredential.label}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Issuer: {selectedCredential.issuer}
-                        </p>
+                        {issuer && (
+                          <p className="text-xs text-muted-foreground">
+                            Issuer: {issuer}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -556,7 +641,7 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={requestMutation.isPending || !selectedType}
+              disabled={requestMutation.isPending || !selectedType || !issuer.trim()}
               className="flex-1"
               data-testid="button-submit-request"
             >
@@ -586,6 +671,22 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="issuer">Issuer *</Label>
+            <Input
+              id="issuer"
+              placeholder="e.g., University of Blockchain, Company Name, Government Authority"
+              value={issuer}
+              onChange={(e) => setIssuer(e.target.value)}
+              disabled={requestMutation.isPending}
+              data-testid="input-issuer"
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              Enter the name of the organization or authority issuing this credential
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="title">Title (Optional)</Label>
             <Input
               id="title"
@@ -596,15 +697,50 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
             />
           </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="issuedDate">Issued Date (Optional)</Label>
+              <Input
+                id="issuedDate"
+                type="date"
+                value={issuedDate}
+                onChange={(e) => setIssuedDate(e.target.value)}
+                disabled={requestMutation.isPending}
+                data-testid="input-issued-date"
+              />
+              <p className="text-xs text-muted-foreground">
+                Date when the credential was issued
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="expiresDate">Expires Date (Optional)</Label>
+              <Input
+                id="expiresDate"
+                type="date"
+                value={expiresDate}
+                onChange={(e) => setExpiresDate(e.target.value)}
+                disabled={requestMutation.isPending}
+                data-testid="input-expires-date"
+                min={issuedDate || undefined}
+              />
+              <p className="text-xs text-muted-foreground">
+                Date when the credential expires
+              </p>
+            </div>
+          </div>
+
           {selectedCredential && (
             <div className="rounded-lg border bg-muted/50 p-4">
               <div className="flex items-center gap-3 mb-2">
                 <selectedCredential.icon className="h-5 w-5 text-primary" />
                 <div>
                   <p className="font-medium text-sm">{selectedCredential.label}</p>
+                  {issuer && (
                   <p className="text-xs text-muted-foreground">
-                    Issuer: {selectedCredential.issuer}
+                      Issuer: {issuer}
                   </p>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
@@ -639,7 +775,7 @@ export function RequestCredentialDialog({ open, onOpenChange }: RequestCredentia
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={requestMutation.isPending || !selectedType}
+              disabled={requestMutation.isPending || !selectedType || !issuer.trim()}
               className="flex-1"
               data-testid="button-submit-request"
             >

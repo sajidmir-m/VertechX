@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,24 @@ export default function Login() {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  
+  // Get redirect parameter from URL
+  const getRedirectPath = () => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get("redirect") || "/dashboard";
+    }
+    return "/dashboard";
+  };
+
+  // Clear any existing session when coming from landing page
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("redirect")) {
+      // Clear existing auth data to force fresh login
+      queryClient.setQueryData(["/api/auth/me"], null);
+    }
+  }, []);
 
   const loginMutation = useMutation({
     mutationFn: async () => {
@@ -29,7 +47,9 @@ export default function Login() {
         title: "Welcome back!",
         description: "You have successfully logged in.",
       });
-      setLocation("/dashboard");
+      // Redirect to the specified path or default to dashboard
+      const redirectPath = getRedirectPath();
+      setLocation(redirectPath);
     },
     onError: () => {
       toast({

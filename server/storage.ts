@@ -13,6 +13,8 @@ import {
   type InsertCredentialTemplate,
   type User,
   type InsertUser,
+  type Organization,
+  type InsertOrganization,
   dids,
   users,
   credentials,
@@ -20,6 +22,7 @@ import {
   ipfsContent,
   activities,
   credentialTemplates,
+  organizations,
 } from "@shared/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import { db } from "./db";
@@ -70,6 +73,17 @@ export interface IStorage {
   getCredentialTemplate(id: string): Promise<CredentialTemplate | undefined>;
   getAllCredentialTemplates(): Promise<CredentialTemplate[]>;
   createCredentialTemplate(template: InsertCredentialTemplate): Promise<CredentialTemplate>;
+  
+  // Organization operations
+  createOrganization(org: InsertOrganization): Promise<Organization>;
+  getOrganizationByEmail(email: string): Promise<Organization | undefined>;
+  getOrganizationById(id: string): Promise<Organization | undefined>;
+  getOrganizationBySupabaseId(supabaseUserId: string): Promise<Organization | undefined>;
+  updateOrganizationAuthInfo(
+    orgId: string,
+    data: Partial<Pick<Organization, "email" | "supabaseUserId">>
+  ): Promise<Organization | undefined>;
+  getAllOrganizations(): Promise<Organization[]>;
 }
 
 export class DbStorage implements IStorage {
@@ -321,6 +335,43 @@ export class DbStorage implements IStorage {
   async createCredentialTemplate(insertTemplate: InsertCredentialTemplate): Promise<CredentialTemplate> {
     const [template] = await db.insert(credentialTemplates).values(insertTemplate).returning();
     return template;
+  }
+
+  // Organization operations
+  async createOrganization(insertOrg: InsertOrganization): Promise<Organization> {
+    const [org] = await db.insert(organizations).values(insertOrg).returning();
+    return org;
+  }
+
+  async getOrganizationByEmail(email: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.email, email));
+    return org;
+  }
+
+  async getOrganizationById(id: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, id));
+    return org;
+  }
+
+  async getOrganizationBySupabaseId(supabaseUserId: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.supabaseUserId, supabaseUserId));
+    return org;
+  }
+
+  async updateOrganizationAuthInfo(
+    orgId: string,
+    data: Partial<Pick<Organization, "email" | "supabaseUserId">>
+  ): Promise<Organization | undefined> {
+    const [updated] = await db
+      .update(organizations)
+      .set(data)
+      .where(eq(organizations.id, orgId))
+      .returning();
+    return updated;
+  }
+
+  async getAllOrganizations(): Promise<Organization[]> {
+    return await db.select().from(organizations).orderBy(desc(organizations.createdAt));
   }
 }
 

@@ -41,7 +41,7 @@ export default function Landing() {
             </p>
             
             <div className="flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-              <Link href="/wallet">
+              <Link href="/login?redirect=/wallet">
                 <Button size="lg" className="h-12 w-full px-8 sm:w-auto" data-testid="button-create-wallet">
                   <Key className="mr-2 h-5 w-5" />
                   Create Your Wallet
@@ -182,7 +182,7 @@ export default function Landing() {
             <p className="text-lg text-muted-foreground mb-10">
               Join the decentralized identity revolution. Create your wallet in seconds.
             </p>
-            <Link href="/wallet">
+            <Link href="/login?redirect=/wallet">
               <Button size="lg" className="h-12 px-8" data-testid="button-get-started">
                 <Key className="mr-2 h-5 w-5" />
                 Get Started Now

@@ -15,11 +15,49 @@ import {
   selectiveDisclosureRequestSchema,
   verifyCredentialRequestSchema,
 } from "./validation";
-import { hashPassword, requireAuth } from "./auth";
+import { hashPassword, requireAuth, requireAdminAuth } from "./auth";
 import { z } from "zod";
 import { supabaseAdmin, supabaseClient } from "./supabase";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize default admin organization
+  try {
+    const defaultEmail = "fahaidjaveed@gmail.com";
+    const defaultPassword = "123456";
+    const existingOrg = await storage.getOrganizationByEmail(defaultEmail);
+    
+    if (!existingOrg) {
+      // Create Supabase user for default admin
+      const { data: createdUser, error: createError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email: defaultEmail,
+          password: defaultPassword,
+          email_confirm: true,
+          user_metadata: {
+            name: "Default Admin Organization",
+            role: "verifier",
+            type: "organization",
+          },
+        });
+
+      if (!createError && createdUser?.user) {
+        const hashedPassword = await hashPassword(defaultPassword);
+        await storage.createOrganization({
+          name: "Default Admin Organization",
+          email: defaultEmail,
+          password: hashedPassword,
+          supabaseUserId: createdUser.user.id,
+          role: "verifier",
+        });
+        console.log("✅ Default admin organization created:", defaultEmail);
+      } else {
+        console.warn("⚠️ Could not create default admin in Supabase:", createError?.message);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to initialize default admin organization:", error);
+  }
+
   // Authentication Routes
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -141,6 +179,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user = updated ?? user;
       }
 
+      // Clear any existing admin session to prevent conflicts
+      if (req.session.organizationId) {
+        delete req.session.organizationId;
+      }
+
       req.session.userId = user.id;
       
       res.json({
@@ -180,6 +223,269 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Admin/Organization Authentication Routes
+  app.post("/api/admin/register", async (req, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().min(2).max(100),
+        email: z.string().email(),
+        password: z.string().min(6),
+        role: z.string().optional().default("verifier"),
+      });
+      
+      const validation = schema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: "Validation error",
+          errors: validation.error.errors,
+        });
+      }
+
+      const { name, email, password, role } = validation.data;
+
+      const existingOrg = await storage.getOrganizationByEmail(email);
+      if (existingOrg) {
+        return res.status(400).json({ message: "Organization with this email already exists" });
+      }
+
+      const { data: createdUser, error: createError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            name,
+            role,
+            type: "organization",
+          },
+        });
+
+      if (createError || !createdUser?.user) {
+        const message =
+          createError?.message ||
+          "Failed to create Supabase user account. Please try again.";
+        return res.status(400).json({ message });
+      }
+
+      const hashedPassword = await hashPassword(password);
+      const org = await storage.createOrganization({
+        name,
+        email,
+        password: hashedPassword,
+        supabaseUserId: createdUser.user.id,
+        role,
+      });
+
+      req.session.organizationId = org.id;
+      
+      res.json({
+        id: org.id,
+        name: org.name,
+        email: org.email,
+        role: org.role,
+      });
+    } catch (error) {
+      console.error("Admin registration error:", error);
+      res.status(500).json({ message: "Failed to register organization" });
+    }
+  });
+
+  app.post("/api/admin/login", async (req, res) => {
+    try {
+      const schema = z.object({
+        email: z.string().email(),
+        password: z.string(),
+      });
+      
+      const validation = schema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid credentials" });
+      }
+
+      const { email, password } = validation.data;
+
+      const { data: signInData, error: signInError } =
+        await supabaseClient.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+      if (signInError || !signInData.user) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const supabaseUserId = signInData.user.id;
+
+      let org = await storage.getOrganizationBySupabaseId(supabaseUserId);
+
+      if (!org) {
+        const existingByEmail = await storage.getOrganizationByEmail(email);
+        if (existingByEmail) {
+          const updated = await storage.updateOrganizationAuthInfo(existingByEmail.id, {
+            supabaseUserId,
+          });
+          org = updated ?? existingByEmail;
+        }
+      }
+
+      if (!org) {
+        return res.status(401).json({ message: "Organization account not found" });
+      }
+
+      if (org.isActive !== "true") {
+        return res.status(403).json({ message: "Organization account is inactive" });
+      }
+
+      // Clear any existing user session to prevent conflicts
+      if (req.session.userId) {
+        delete req.session.userId;
+      }
+      
+      // Set organization session
+      req.session.organizationId = org.id;
+      
+      res.json({
+        id: org.id,
+        name: org.name,
+        email: org.email,
+        role: org.role,
+      });
+    } catch (error) {
+      console.error("Admin login error:", error);
+      res.status(500).json({ message: "Failed to login" });
+    }
+  });
+
+  app.post("/api/admin/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to logout" });
+      }
+      res.json({ message: "Logged out successfully" });
+    });
+  });
+
+  app.get("/api/admin/me", async (req, res) => {
+    if (!req.session?.organizationId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    try {
+      const org = await storage.getOrganizationById(req.session.organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      res.json({
+        id: org.id,
+        name: org.name,
+        email: org.email,
+        role: org.role,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch organization" });
+    }
+  });
+
+  // Admin Verification Route
+  app.post("/api/admin/verify", requireAdminAuth, async (req, res) => {
+    try {
+      const validation = verifyCredentialRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: "Validation error",
+          errors: validation.error.errors,
+        });
+      }
+
+      const { credentialData } = validation.data;
+
+      let credential;
+      try {
+        credential = JSON.parse(credentialData);
+      } catch {
+        const trimmed = credentialData.trim();
+        const shareTokenMatch = trimmed.match(/(?:\/verify\/)([A-Za-z0-9-]+)/);
+        const possibleShareToken = shareTokenMatch ? shareTokenMatch[1] : trimmed;
+
+        let foundCredential =
+          (await storage.getCredential(trimmed)) ||
+          (await storage.getCredentialByShareToken(possibleShareToken)) ||
+          (await storage.getCredential(possibleShareToken));
+
+        if (!foundCredential) {
+          return res.status(404).json({ message: "Credential not found" });
+        }
+
+        credential = foundCredential;
+      }
+
+      if (!credential || !credential.proof || !credential.credentialSubject) {
+        return res.status(400).json({ message: "Invalid credential format" });
+      }
+
+      const did = await storage.getDid(credential.didId);
+      if (!did) {
+        return res.status(400).json({ message: "DID not found for credential" });
+      }
+
+      const signatureValid = await verifySignature(
+        credential.credentialSubject,
+        credential.proof.signature,
+        did.publicKey
+      );
+
+      const notExpired = credential.expiresAt
+        ? new Date(credential.expiresAt) > new Date()
+        : true;
+
+      const issuerTrusted = true; // In production, this would check against a trusted issuer registry
+
+      const proofVerified = credential.proof && credential.proof.signature ? true : false;
+
+      const status = typeof credential.status === "string"
+        ? credential.status.trim().toLowerCase()
+        : "";
+      const statusVerified = status === "verified";
+
+      const isValid = signatureValid && notExpired && issuerTrusted && proofVerified && statusVerified;
+
+      // Create verification record
+      const org = await storage.getOrganizationById(req.session!.organizationId!);
+      await storage.createVerification({
+        credentialId: credential.id,
+        verifierDid: org ? `did:org:${org.id}` : undefined,
+        isValid: isValid ? "true" : "false",
+        verificationMethod: "signature",
+        result: {
+          signatureValid,
+          notExpired,
+          issuerTrusted,
+          proofVerified,
+          statusVerified,
+          verifiedBy: org?.name || "Unknown",
+          verifiedAt: new Date().toISOString(),
+        },
+      });
+
+      res.json({
+        isValid,
+        credential,
+        details: {
+          signatureValid,
+          notExpired,
+          issuerTrusted,
+          proofVerified,
+          statusVerified,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Admin verification error:", error);
+      res.status(500).json({ message: "Failed to verify credential" });
     }
   });
 
@@ -264,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { type, title, issuer } = validation.data;
+      const { type, title, issuer, issuedDate, expiresDate } = validation.data;
 
       const did = await storage.getCurrentDidForUser(userId);
       if (!did) {
@@ -313,22 +619,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const shareToken = randomUUID();
 
+      // Parse dates if provided
+      const parsedIssuedDate = issuedDate ? new Date(issuedDate) : new Date();
+      const parsedExpiresDate = expiresDate ? new Date(expiresDate) : (type === "GovernmentID" 
+        ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5)  // 5 years default
+        : null);
+
       const credential = await storage.createCredential({
         didId: did.id,
         type,
         title,
         issuer,
         issuerDid: `did:web:${issuer.toLowerCase().replace(/\s+/g, "-")}.com`,
-        expiresAt: type === "GovernmentID" 
-          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 5)  // 5 years
-          : null,
+        expiresAt: parsedExpiresDate,
         status: "verified",
         credentialSubject,
         proof,
         ipfsCid,
         shareToken,
         metadata: {
-          issuanceDate: new Date().toISOString(),
+          issuanceDate: parsedIssuedDate.toISOString(),
         },
       });
 
@@ -507,7 +817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/credentials/custom", requireAuth, async (req, res) => {
     try {
       const userId = req.session!.userId!;
-      const { type, title, issuer, credentialData, imageUrl, documentUrl } = req.body;
+      const { type, title, issuer, issuedDate, expiresDate, credentialData, imageUrl, documentUrl } = req.body;
 
       if (!type || !title || !issuer || !credentialData) {
         return res.status(400).json({ message: "Missing required fields" });
@@ -542,13 +852,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const shareToken = randomUUID();
 
+      // Parse dates if provided
+      const parsedIssuedDate = issuedDate ? new Date(issuedDate) : new Date();
+      const parsedExpiresDate = expiresDate ? new Date(expiresDate) : null;
+
       const credential = await storage.createCredential({
         didId: did.id,
         type,
         title,
         issuer,
         issuerDid: `did:web:${issuer.toLowerCase().replace(/\s+/g, "-")}.com`,
-        expiresAt: null,
+        expiresAt: parsedExpiresDate,
         status: "verified",
         credentialSubject,
         proof,
@@ -557,7 +871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         documentUrl: documentUrl || null,
         shareToken,
         metadata: {
-          issuanceDate: new Date().toISOString(),
+          issuanceDate: parsedIssuedDate.toISOString(),
         },
       });
 

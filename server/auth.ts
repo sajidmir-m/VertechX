@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 declare module "express-session" {
   interface SessionData {
     userId?: string;
+    organizationId?: string;
   }
 }
 
@@ -26,5 +27,12 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function optionalAuth(req: Request, res: Response, next: NextFunction) {
+  next();
+}
+
+export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.organizationId) {
+    return res.status(401).json({ message: "Admin authentication required" });
+  }
   next();
 }

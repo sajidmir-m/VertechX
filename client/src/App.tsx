@@ -18,6 +18,8 @@ import Verify from "@/pages/verify";
 import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 import PublicCredential from "@/pages/public-credential";
+import AdminLogin from "@/pages/admin-login";
+import AdminDashboard from "@/pages/admin-dashboard";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -114,6 +116,10 @@ function Router() {
           <Settings />
         </DashboardLayout>
       </Route>
+
+      {/* Admin Routes */}
+      <Route path="/admin/login" component={AdminLogin} />
+      <Route path="/admin/dashboard" component={AdminDashboard} />
 
       <Route component={NotFound} />
     </Switch>
