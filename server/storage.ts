@@ -39,6 +39,7 @@ export interface IStorage {
     data: Partial<Pick<User, "email" | "supabaseUserId">>
   ): Promise<User | undefined>;
   updateUserCurrentDid(userId: string, didId: string): Promise<void>;
+  deleteUser(userId: string): Promise<void>;
   
   // DID operations
   getDid(id: string): Promise<Did | undefined>;
@@ -185,6 +186,34 @@ export class DbStorage implements IStorage {
 
   async updateUserCurrentDid(userId: string, didId: string): Promise<void> {
     await db.update(users).set({ currentDidId: didId }).where(eq(users.id, userId));
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    // Get user's DIDs
+    const userDids = await this.getDidsByUserId(userId);
+    const didIds = userDids.map(d => d.id);
+    
+    // Delete related data (cascading deletes should handle most, but being explicit)
+    if (didIds.length > 0) {
+      // Delete verifications for user's credentials
+      const userCredentials = await this.getCredentialsByUserId(userId);
+      const credentialIds = userCredentials.map(c => c.id);
+      if (credentialIds.length > 0) {
+        await db.delete(verifications).where(inArray(verifications.credentialId, credentialIds));
+      }
+      
+      // Delete credentials
+      await db.delete(credentials).where(inArray(credentials.didId, didIds));
+      
+      // Delete activities
+      await db.delete(activities).where(inArray(activities.didId, didIds));
+      
+      // Delete DIDs
+      await db.delete(dids).where(inArray(dids.id, didIds));
+    }
+    
+    // Delete user
+    await db.delete(users).where(eq(users.id, userId));
   }
 
   // DID operations

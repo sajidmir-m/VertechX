@@ -9,6 +9,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   MoreVertical,
   Eye,
   Share2,
@@ -24,6 +34,8 @@ import type { Credential } from "@shared/schema";
 import { CredentialDetailModal } from "./credential-detail-modal";
 import { SelectiveDisclosureDialog } from "./selective-disclosure-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   downloadCredentialAsPdf,
   shareCredentialLink,
@@ -37,6 +49,7 @@ interface CredentialCardProps {
 export function CredentialCard({ credential, compact = false }: CredentialCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showRevokeDialog, setShowRevokeDialog] = useState(false);
   const { toast } = useToast();
 
   const handleDownload = () => {
@@ -75,6 +88,42 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
         variant: "destructive",
       });
     }
+  };
+
+  const revokeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/credentials/${credential.id}/revoke`);
+      return await res.json();
+    },
+    onSuccess: () => {
+      // Invalidate credentials query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["/api/credentials"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/activities"] });
+      toast({
+        title: "Credential revoked",
+        description: `"${credential.title}" has been successfully revoked.`,
+      });
+      setShowRevokeDialog(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Revoke failed",
+        description: error.message || "Failed to revoke credential. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRevoke = () => {
+    if (credential.status === "revoked") {
+      toast({
+        title: "Already revoked",
+        description: "This credential is already revoked.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setShowRevokeDialog(true);
   };
 
   const statusConfig = {
@@ -157,10 +206,16 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
                     <Download className="mr-2 h-4 w-4" />
                     Download
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="text-destructive" data-testid="menu-revoke">
-                    <Ban className="mr-2 h-4 w-4" />
-                    Revoke
-                  </DropdownMenuItem>
+                  {credential.status !== "revoked" && (
+                    <DropdownMenuItem 
+                      className="text-destructive" 
+                      data-testid="menu-revoke"
+                      onClick={handleRevoke}
+                    >
+                      <Ban className="mr-2 h-4 w-4" />
+                      Revoke
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -245,6 +300,30 @@ export function CredentialCard({ credential, compact = false }: CredentialCardPr
         open={showShare}
         onOpenChange={setShowShare}
       />
+
+      <AlertDialog open={showRevokeDialog} onOpenChange={setShowRevokeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke Credential</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to revoke "{credential.title}"? This action cannot be undone.
+              Once revoked, this credential will no longer be valid for verification.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={revokeMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => revokeMutation.mutate()}
+              disabled={revokeMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {revokeMutation.isPending ? "Revoking..." : "Revoke"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

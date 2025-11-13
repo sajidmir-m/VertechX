@@ -33,11 +33,18 @@ export const getQueryFn: <T>(options: {
       credentials: "include",
     });
 
+    // Handle 401 gracefully - this is expected when user is not authenticated
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      // Don't log this as an error - it's expected behavior
       return null;
     }
 
-    await throwIfResNotOk(res);
+    // For other errors, throw normally
+    if (!res.ok) {
+      const text = (await res.text()) || res.statusText;
+      throw new Error(`${res.status}: ${text}`);
+    }
+    
     return await res.json();
   };
 
