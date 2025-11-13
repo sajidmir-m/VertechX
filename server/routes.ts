@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import {
   generateKeyPair,
@@ -385,8 +386,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
 
-      if (credential.id) {
-        const did = await storage.getCurrentDid();
+      if (credential.id && req.session?.userId) {
+        const did = await storage.getCurrentDidForUser(req.session.userId);
         if (did) {
           await storage.createActivity({
             didId: did.id,

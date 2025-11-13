@@ -184,6 +184,8 @@ export class MemStorage implements IStorage {
     const did: Did = {
       ...insertDid,
       id,
+      method: insertDid.method || "key",
+      metadata: insertDid.metadata || {},
       createdAt: new Date(),
     };
     this.dids.set(id, did);
@@ -221,6 +223,14 @@ export class MemStorage implements IStorage {
     const credential: Credential = {
       ...insertCredential,
       id,
+      status: insertCredential.status || "verified",
+      expiresAt: insertCredential.expiresAt || null,
+      issuerDid: insertCredential.issuerDid || null,
+      ipfsCid: insertCredential.ipfsCid || null,
+      imageUrl: insertCredential.imageUrl || null,
+      documentUrl: insertCredential.documentUrl || null,
+      shareToken: insertCredential.shareToken || null,
+      metadata: insertCredential.metadata || {},
       issuedAt: new Date(),
     };
     this.credentials.set(id, credential);
@@ -260,6 +270,9 @@ export class MemStorage implements IStorage {
     const verification: Verification = {
       ...insertVerification,
       id,
+      credentialId: insertVerification.credentialId || null,
+      verifierDid: insertVerification.verifierDid || null,
+      result: insertVerification.result || {},
       verifiedAt: new Date(),
     };
     this.verifications.set(id, verification);
@@ -278,6 +291,9 @@ export class MemStorage implements IStorage {
     const content: IpfsContent = {
       ...insertIpfsContent,
       id,
+      fileSize: insertIpfsContent.fileSize || null,
+      mimeType: insertIpfsContent.mimeType || null,
+      metadata: insertIpfsContent.metadata || {},
       uploadedAt: new Date(),
     };
     this.ipfsContents.set(insertIpfsContent.cid, content);
@@ -307,6 +323,8 @@ export class MemStorage implements IStorage {
     const activity: Activity = {
       ...insertActivity,
       id,
+      didId: insertActivity.didId || null,
+      metadata: insertActivity.metadata || {},
       timestamp: new Date(),
     };
     this.activities.set(id, activity);
@@ -331,6 +349,8 @@ export class MemStorage implements IStorage {
     const template: CredentialTemplate = {
       ...insertTemplate,
       id,
+      requiredFields: insertTemplate.requiredFields || null,
+      schema: insertTemplate.schema || {},
       createdAt: new Date(),
     };
     this.templates.set(id, template);
